@@ -1,0 +1,272 @@
+Package compiler;
+
+Helpers
+
+	all 	= [0 .. 0xFFFF];
+	all_char = [0 .. 127];
+	newline = 10;
+	tab 	= 9;
+	space	= ' ';
+	cr  	= 13;
+	eol     = cr | newline | cr newline;
+	not_eol = [all-[cr+newline]];
+	digit 	= ['0' .. '9'];
+	letter 	= [['a' .. 'z'] + ['A' .. 'Z']];
+	no_digit= letter | '_';
+	hex_digit = [digit + [['a' .. 'f'] + ['A' .. 'F']]];
+	hex_con = '\x' hex_digit hex_digit;
+	escape_c= '\n' | '\t' | '\r' | '\0' | '\\' | '\' ''' | '\"' | hex_con;
+	whitespace = newline | space | tab | cr;
+	not_dol = [all - '$'];
+	not_dol_eol = [not_eol - '$'];
+	not_dol_slash = [not_dol - '\'];
+	char_c 	= [all_char - [ '"' + [''' + ['\' + [cr + newline]]]]] | escape_c;
+	s_string=[all - ['"' + ['\' + [cr + newline]]]] | escape_c;
+	variable = letter (no_digit | digit)*;
+	short_com = '$' not_dol_eol* not_eol* newline;
+	long_com = '$$' ((not_dol '$') | not_dol)* not_dol_slash* '$$';
+
+Tokens
+	comment = short_com | long_com;
+	whitespace = whitespace+;
+	number 	= digit+;
+	errorous_number = (digit)+ no_digit+;
+	plus   	= '+';
+	minus  	= '-';
+	mult  	= '*';
+	over   	= '/';
+	hash 	= '#';
+	equal 	= '=';
+	bgr		= '>';
+	lsr		= '<';
+	bge		= '>=';
+	lse		= '<=';
+	lparen 	= '(';
+	rparen 	= ')';
+	lbrace 	= '{';
+    rbrace 	= '}';
+	lpin	= '[';
+	rpin	= ']';
+    semcol	= ';';
+	comma 	= ',';
+	uddot	= ':';
+	ass_op	= '<-';
+	and 	= 'and';
+	or 		= 'or';
+	not 	= 'not';
+	div 	= 'div';
+	mod 	= 'mod';
+	char 	= 'char';
+	int 	= 'int';
+	fun 	= 'fun';
+	nothing = 'nothing';
+	return 	='return';
+	ref 	= 'ref';
+	var		= 'var';
+	if		= 'if';
+	then 	= 'then';
+	else 	= 'else';
+	do 		= 'do';
+	while 	= 'while';
+	variable = variable;
+	cons_char = ''' char_c ''';
+	string  = '"' s_string+  '"';
+
+
+
+Ignored Tokens
+  comment,whitespace;
+
+
+
+Productions
+
+	program {->program} = func_def
+	{-> New program(func_def.variable,[func_def.fun_info],func_def.ret_type,[func_def.local_def],[func_def.stmt])};
+
+	func_def {->variable fun_info* ret_type local_def* stmt*}= {fun_definition} header local_def* block
+	{-> header.variable [header.fun_info] header.ret_type [local_def.local_def] [block.stmt]};
+
+	vars {-> variable* } = {var} variable vars_tail* {-> [variable,vars_tail.variable]};
+
+	vars_tail {-> variable} = {vars_tail} comma variable {-> variable};
+
+	data_type {-> data_type} = {data_int} int {-> New data_type.int(int)}
+			  | {data_char} char {-> New data_type.char(char)};
+
+	array_type  {-> number} = {array_t} lpin number rpin {-> number};
+
+	type {-> data_type number*} = {d_type} data_type {-> data_type.data_type []}
+		 | {table_type} data_type array_type+ {-> data_type.data_type [array_type.number]};
+	
+	var_decl {-> variable* data_type number*} = {var_decl} var vars+ uddot type semcol
+	{-> [vars.variable] type.data_type [type.number]};
+
+	func_array_type {-> lpin} = {fun_table_no} lpin rpin {-> lpin };
+
+	funvar_type  {-> data_type lpin? number*} = {fun_d_type} data_type {-> data_type.data_type Null []}
+				| {fun_table_type} data_type [fun_array]:func_array_type? array_type*
+				        {-> data_type.data_type fun_array.lpin [array_type.number]};
+
+	fpar_def {-> fun_info*} = {fpar_def1} ref? vars uddot funvar_type semcol fpar_def
+	{-> [New fun_info(ref,[vars.variable],funvar_type.data_type,funvar_type.lpin,[funvar_type.number]),
+	fpar_def.fun_info]}
+			                | {fpar_def2} ref? vars uddot funvar_type
+			 {-> [New fun_info(ref,[vars.variable],funvar_type.data_type,funvar_type.lpin,[funvar_type.number])]};
+
+	ret_type {-> ret_type} = {fun_r_int} int {-> New ret_type.int(int)}
+	         | {fun_r_char} char    {-> New ret_type.char(char)}
+	         | {fun_r_nothing} nothing {-> New ret_type.noth(nothing)};
+
+	header {-> variable fun_info* ret_type}= {fun_decla} fun variable lparen fpar_def? rparen uddot ret_type
+	       {-> variable [fpar_def.fun_info] ret_type.ret_type};
+
+	func_decl {-> variable fun_info* ret_type} = {func_decl} header semcol
+	{-> header.variable [header.fun_info] header.ret_type};
+
+	local_def {-> local_def} = {local_fdef} func_def
+	{-> New local_def.func_def(func_def.variable,[func_def.fun_info],func_def.ret_type,[func_def.local_def],
+	[func_def.stmt])}
+			          | {local_fdecl} func_decl
+			          {->New local_def.header(func_decl.variable, [func_decl.fun_info],func_decl.ret_type)}
+
+			          | {local_vardecl} var_decl
+			  {->New local_def.var_decl([var_decl.variable],var_decl.data_type,[var_decl.number])};
+
+	func_parms {-> expr*} =  {func_param} expr {-> [expr.expr]}
+			   |  {func_params} expr comma func_parms {-> [expr.expr,func_parms.expr]};
+
+	func_call {-> variable expr*} = {func_call} variable lparen func_parms? rparen {-> variable [func_parms.expr]};
+
+	stmt {-> stmt*} = {noth} semcol {-> []}
+		 | {assignment} l_value ass_op expr semcol {-> [New stmt.assign(l_value.value,[l_value.expr],expr.expr)]}
+		 | {in_block} block                        {-> [block.stmt]}
+		 | {func_call} func_call semcol            {-> [New stmt.func_call(func_call.variable,[func_call.expr])]}
+		 | {return_v} return expr? semcol          {-> [New stmt.return(expr.expr)]}
+		 | {if} if_stmt                            {-> [if_stmt.stmt]}
+		 | {while} while_stmt                      {-> [while_stmt.stmt]};
+
+	block {-> stmt*} = {block} lbrace stmt* rbrace {-> [New stmt.block([stmt.stmt])]};
+
+	sign {-> sign} = {sign_plus} plus {-> New sign.plus(plus)}
+		 | {sign_minus} minus {-> New sign.minus(minus)};
+
+
+
+	expr {-> expr} = {term} term {->term.expr}
+		            | {plus} [left]:expr plus [right]:term {-> New expr.plus(left.expr,right.expr)}
+	                | {minus} [left]:expr minus [right]:term {-> New expr.minus(left.expr,right.expr)};
+
+	term {-> expr} =  {term_sign} term_sign {-> term_sign.expr}
+		              | {mult} [left]:term mult [right]:term_sign {-> New expr.mult(left.expr,right.expr)}
+		              | {div} [left]:term div [right]:term_sign  {-> New expr.div(left.expr,right.expr)}
+		              | {mod} [left]:term mod [right]:term_sign     {-> New expr.mod(left.expr,right.expr)};
+
+	term_sign   {-> expr} =  {expr_sign} sign term_sign {-> New expr.sign(sign.sign,term_sign.expr)}
+			                | {factor} factor        {-> factor.expr};
+
+	factor  {-> expr} = {number} number {-> New expr.number(number)}
+		             | {cons_char} cons_char {->New expr.cons_char(cons_char)}
+		             | {l_value} l_value {->New expr.l_value(l_value.value,[l_value.expr])}
+		             | {func} func_call {-> New expr.func_call(func_call.variable,[func_call.expr])}
+		             | {expr_paren} lparen expr rparen {-> expr.expr};
+
+    l_value_array {-> expr} = lpin expr rpin {-> expr.expr};
+	l_value {-> value expr*} = {id} variable l_value_array* {-> New value.variable(variable) [l_value_array.expr]}
+			| {string} string l_value_array* {-> New value.string(string) [l_value_array.expr]};
+
+
+
+	comp_lop {-> comp} = {bge_op} bge {-> New comp.bge(bge)}
+			 | {bgr_op} bgr           {-> New comp.bgr(bgr)}
+			 | {lse_op} lse           {-> New comp.lse(lse)}
+			 | {lsr_op} lsr           {-> New comp.lsr(lsr)}
+			 | {equal_op} equal       {-> New comp.equal(equal)}
+			 | {dif_op} hash          {-> New comp.diff(hash)};
+
+	if_stmt {-> stmt*} = {no_else} if cond then stmt {-> [New stmt.if(cond.cond,[stmt.stmt],[])]}
+            | {with_else} if cond then [thens]:stmt_with_else else [elses]:stmt {-> [New stmt.if(cond.cond,[thens.stmt],[elses.stmt])]};
+
+    stmt_with_else {-> stmt*}= {noth} semcol {-> []}
+				   | {assignment} l_value ass_op expr semcol
+				   {-> [New stmt.assign(l_value.value,[l_value.expr],expr.expr)]}
+		 		   | {in_block} block   {-> [block.stmt]}
+		 		   | {func_call} func_call semcol
+		 		   {-> [New stmt.func_call(func_call.variable,[func_call.expr])]}
+		 		   | {return_v} return expr? semcol          {-> [New stmt.return(expr.expr)]}
+		 		   | {if} if_else_stmt                       {-> [if_else_stmt.stmt]}
+		 		   | {while_with_else} while_else_stmt       {-> [while_else_stmt.stmt]};
+
+    if_else_stmt {-> stmt*} = if cond then [thens]:stmt_with_else else [elses]:stmt_with_else {-> [New stmt.if(cond.cond,[thens.stmt],[elses.stmt])]};
+
+    while_stmt {-> stmt*} = {while_stmt} while cond do stmt {-> [New stmt.while(cond.cond,[stmt.stmt])]};
+    while_else_stmt {->stmt*} = {while_stmt_else} while cond do stmt_with_else {-> [New stmt.while(cond.cond,[stmt_with_else.stmt])]};
+
+    cond_f {-> expr} = {l} expr {->expr.expr};
+
+    cond {-> cond} = {cond_term} cond_term {-> cond_term.cond}
+                   | {cond_or} [left]:cond or [right]:cond_term {-> New cond.or(left.cond,right.cond)} ;
+
+    cond_term {-> cond} = {cond_factor_not} cond_factor_not {-> cond_factor_not.cond}
+    		            | {cond_and} [left]:cond_term and [right]:cond_factor_not {-> New cond.and(left.cond,right.cond)} ;
+
+    cond_factor_not {-> cond} = {cond_not} not cond_factor_not {-> New cond.not(cond_factor_not.cond)}
+    				          | {cond_factor} cond_factor {-> cond_factor.cond};
+
+    cond_factor  {-> cond}= {cond_paren} lparen cond rparen {-> cond.cond}
+    		              | {cond_expr} cond_f comp_lop expr {-> New cond.expr(cond_f.expr,comp_lop.comp,expr.expr)};
+
+Abstract Syntax Tree
+    program = [fun_name]:variable [param_info]:fun_info+ [return_type]:ret_type local_def* stmt*;
+
+
+    local_def = {header} [fun_name]:variable [param_info]:fun_info+ [return_type]:ret_type
+              | {func_def} [fun_name]:variable [param_info]:fun_info+ [return_type]:ret_type local_def* stmt*
+              | {var_decl} variable+ data_type number*;
+
+
+    vars = variable+;
+    data_type = {int} int
+              | {char} char;
+
+    ret_type = {int} int
+             | {char} char
+             | {noth} nothing;
+
+    fun_info = ref? variable+ data_type lpin? number*;
+
+    sign = {plus} plus
+         | {minus} minus;
+
+    value = {variable} variable
+          | {string} string;
+
+    expr = {plus} [left]:expr [right]:expr
+         | {minus} [left]:expr [right]:expr
+         | {mult} [left]:expr [right]:expr
+         | {div} [left]:expr [right]:expr
+         | {mod} [left]:expr [right]:expr
+         | {sign} sign expr
+         | {number} number
+         | {cons_char} cons_char
+         | {l_value} value expr*
+         | {func_call} [fun_name]:variable expr*;
+
+    stmt = {assign} value [array_index]:expr* [assign_value]:expr
+         | {func_call} variable expr*
+         | {return} expr?
+         | {if} [condition]:cond [then]:stmt* [else]:stmt*
+         | {while} [condition]:cond [body]:stmt*
+         | {block} [body]:stmt*;
+
+    comp = {bge} bge
+         | {lsr} lsr
+         | {lse} lse
+         | {bgr} bgr
+         | {equal} equal
+         | {diff} hash;
+
+    cond = {or} [left]:cond [right]:cond
+         | {and} [left]:cond [right]:cond
+         | {not} cond
+         | {expr} [left]:expr comp [right]:expr;
